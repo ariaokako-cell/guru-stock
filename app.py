@@ -2,56 +2,49 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-st.set_page_config(page_title="大师灵魂评估 V21.0", layout="wide")
+st.set_page_config(page_title="大师灵魂评估 V22.0-自动审计版", layout="wide")
 
-# --- 核心逻辑：情景分析与大师投票 ---
-def master_board_v21(data_3y, avg_roe_10y, red_flags, moat_score):
-    votes = {}
-    latest = data_3y[0]
-    is_turnaround = latest['roe'] < 10 and avg_roe_10y > 15
+# --- 核心逻辑：大师自动护城河审计 ---
+def master_moat_audit(df, avg_roe_10y):
+    # 逻辑：巴菲特看毛利率稳定性
+    margin_std = df['margin'].std() if 'margin' in df.columns else 5.0
+    # 逻辑：多尔西看超额收益 (假设WACC为8%)
+    excess_return = avg_roe_10y - 8.0
     
-    # 张新民一票否决
-    if red_flags:
-        return {m: "❌ 否决 (财务地雷)" for m in ["巴菲特", "芒格", "邓普顿", "马克思", "费雪"]}, "🚨 财务质量危机"
-
-    # 1. 巴菲特/芒格 (侧重：确定性与底蕴)
-    if is_turnaround:
-        votes["巴菲特"] = "➖ 持有 (观察护城河是否受损)"
-        votes["芒格"] = "👎 避坑 (不喜欢泥潭里的生意)"
-    elif latest['roe'] > 18:
-        votes["巴菲特"] = "👍 赞成 (高质量持续)"
-        votes["芒格"] = "👍 赞成 (简单、可理解)"
+    # 综合判定护城河分数 (1-10)
+    # 基础分来自长期ROE，修正分来自波动率
+    base_moat = (avg_roe_10y / 3) 
+    stability_penalty = max(0, margin_std * 0.5)
+    final_moat = min(10, max(1, base_moat - stability_penalty))
     
-    # 2. 邓普顿/霍华德·马克思 (侧重：逆向与周期)
-    if is_turnaround:
-        votes["邓普顿"] = "👍 赞成 (极度悲观即是买点)"
-        votes["马克思"] = "👍 赞成 (正在进入周期底部)"
+    # 大师评述生成
+    if final_moat > 7.5:
+        verdict = "💎 钻石级护城河：长期极高且稳健的资本回报，显示出极强的定价权。"
+    elif final_moat > 5:
+        verdict = "🧱 宽阔护城河：具备明显的行业竞争优势，但需关注边际竞争。"
     else:
-        votes["马克思"] = "➖ 持有 (谨防自满情绪)"
-
-    # 3. 费雪 (侧重：研发与未来)
-    votes["费雪"] = "👍 赞成" if moat_score > 8 else "➖ 持有"
-
-    mode_desc = "🦇 困境反转模式" if is_turnaround else "🦁 稳健价值模式"
-    return votes, mode_desc
+        verdict = "⌛ 窄护城河/无护城河：盈利能力不稳定，可能正处于剧烈的同质化竞争中。"
+    
+    return final_moat, verdict
 
 # --- UI 界面 ---
-st.title("🏛️ 大师灵魂评估系统 V21.0")
-st.caption("逻辑：长短期时空穿透 | 张新民财务防火墙 | 格林沃尔德 EPV 估值")
+st.title("🏛️ 大师灵魂评估系统 V22.0")
+st.caption("逻辑：大师自动审计 | 财务揭示模型 | 避开主观偏见")
 
 # 主界面数据录入
-st.subheader("第一步：录入财务‘快照’与‘底蕴’")
-col_a, col_b = st.columns(2)
-with col_a:
-    ticker = st.text_input("公司简称", "某白马股")
+st.subheader("第一步：录入财务底蕴与最新环境")
+c1, c2, c3 = st.columns(3)
+with c1:
+    ticker = st.text_input("公司简称", "示例白马")
     curr_p = st.number_input("当前股价", value=100.0)
-    avg_roe_10y = st.number_input("10年平均 ROE (%)", value=20.0, help="这是该公司的‘历史底蕴’")
-with col_b:
-    moat_score = st.slider("护城河/定性优势评分 (1-10)", 1, 10, 7)
-    shares = st.number_input("总股本 (亿股)", value=10.0)
+with c2:
+    avg_roe_10y = st.number_input("10年平均 ROE (%)", value=20.0)
     ebit = st.number_input("最新 EBIT (亿)", value=10.0)
+with c3:
+    shares = st.number_input("总股本 (亿股)", value=10.0)
+    net_debt = st.number_input("净债务 (亿)", value=5.0)
 
-st.subheader("第二步：录入近三年动态数据 (2025-2023)")
+st.subheader("第二步：录入近三年核心数据 (2025-2023)")
 years = ["2025(新)", "2024", "2023"]
 data_3y = []
 cols = st.columns(3)
@@ -59,50 +52,47 @@ for i, yr in enumerate(years):
     with cols[i]:
         data_3y.append({
             "roe": st.number_input(f"ROE (%) - {yr}", value=15.0, key=f"r_{i}"),
-            "net_p": st.number_input(f"净利润 (亿) - {yr}", value=10.0, key=f"p_{i}"),
+            "margin": st.number_input(f"销售净利率 (%) - {yr}", value=12.0, key=f"m_{i}"),
             "ocf": st.number_input(f"经营现金流 (亿) - {yr}", value=11.0, key=f"o_{i}"),
-            "total_a": st.number_input(f"总资产 (亿) - {yr}", value=100.0, key=f"a_{i}"),
-            "debt_r": st.number_input(f"负债率 (%) - {yr}", value=40.0, key=f"d_{i}"),
-            "cash": st.number_input(f"货币资金 (亿) - {yr}", value=20.0, key=f"c_{i}"),
-            "equity": st.number_input(f"净资产 (亿) - {yr}", value=50.0, key=f"e_{i}")
+            "net_p": st.number_input(f"净利润 (亿) - {yr}", value=10.0, key=f"p_{i}"),
+            "equity": st.number_input(f"净资产 (亿) - {yr}", value=50.0, key=f"e_{i}"),
+            "debt_r": st.number_input(f"负债率 (%) - {yr}", value=40.0, key=f"d_{i}")
         })
 
-if st.button("🚀 执行全周期灵魂评估"):
-    # 1. 张新民审计 (防火墙)
+if st.button("🚀 启动大师自动审计与决策"):
+    df_3y = pd.DataFrame(data_3y)
+    
+    # 1. 自动审计护城河
+    moat_score, moat_verdict = master_moat_audit(df_3y, avg_roe_10y)
+    
+    # 2. 张新民防火墙
     latest = data_3y[0]
     red_flags = []
-    if latest['ocf'] < latest['net_p'] * 0.7: red_flags.append("最新利润含金量极差")
-    if latest['cash'] > latest['equity'] * 0.4 and latest['debt_r'] > 60: red_flags.append("疑似存贷双高舞弊")
-    
-    # 2. 场景判定与大师投票
-    votes, mode = master_board_v21(data_3y, avg_roe_10y, red_flags, moat_score)
+    if latest['ocf'] < latest['net_p'] * 0.8: red_flags.append("利润含金量严重不足")
+    if latest['debt_r'] > 65: red_flags.append("负债率跨越安全红线")
     
     # 3. 格林沃尔德估值 (EPV)
-    # WACC 设定为机会成本底线 8%
     wacc = 0.08
-    adj_ebit = max(ebit, (avg_roe_10y/100 * latest['equity'])) # 如果在爬坡，取均值盈利能力
-    epv = (adj_ebit * 0.75) / wacc
-    iv = (epv - (latest['total_a'] * latest['debt_r']/100 - latest['cash'])) / shares
-    
-    st.divider()
-    
-    # 结果展示
-    st.subheader(f"分析结论：{mode}")
-    
-    c1, c2, c3 = st.columns(3)
-    c1.metric("大师综合判定", "买入" if "👍" in str(votes) and not red_flags else "观察/回避")
-    c2.metric("内在价值 (EPV)", f"{iv:.2f}")
-    c3.metric("安全边际", f"{((iv-curr_p)/iv*100):.1f}%")
+    adj_ebit = max(ebit, (avg_roe_10y/100 * latest['equity'])) if moat_score > 6 else ebit
+    iv = ( (adj_ebit * 0.75) / wacc - net_debt ) / shares
 
-    st.subheader("🗳️ 大师委员会投票记录")
-    st.table(pd.DataFrame(list(votes.items()), columns=["分析流派", "针对当前场景的表决"]))
+    # --- 结果展示 ---
+    st.divider()
+    st.header(f"📈 {ticker}：大师灵魂审计简报")
+    
+    c_m1, c_m2, c_m3 = st.columns(3)
+    c_m1.metric("护城河成色 (系统算法)", f"{moat_score:.1f}/10")
+    c_m2.metric("内在价值 (EPV)", f"{iv:.2f}")
+    c_m3.metric("安全边际", f"{((iv-curr_p)/iv*100):.1f}%")
+    
+    st.info(f"🖋️ **大师委员会审计意见**：{moat_verdict}")
     
     if red_flags:
-        st.error(f"张新民防火墙警报：{', '.join(red_flags)}")
+        st.error(f"🚫 **张新民说“不”**：{', '.join(red_flags)}。倒过来想，数据虽好，但底色存疑。")
     
-    with st.expander("📄 查看大师灵魂评述"):
-        if "困境反转" in mode:
-            st.write("**约翰·邓普顿**：‘目前的财务报表是一场灾难，但这正是廉价买入卓越底蕴的机会。’")
-            st.write("**张新民**：‘虽然利润难看，但只要经营现金流没有断裂，企业就有反击的本钱。’")
-        else:
-            st.write("**巴菲特**：‘稳定的数字说明了一切。我们不需要聪明的反转，我们只需要平庸的持续。’")
+    with st.expander("🔍 查看详细逻辑拆解"):
+        st.write(f"**巴菲特/多尔西逻辑**：通过分析您录入的10年ROE({avg_roe_10y}%)及近3年净利率波动，我们反向推导出该公司的竞争优势。")
+        st.write(f"**估值修正逻辑**：{'由于护城河评分较高，我们采用了标准收益能力进行估值。' if moat_score > 6 else '由于护城河较窄，我们仅按现状盈利能力保守估值。'}")
+
+st.divider()
+st.caption("注：V22.0 已移除主观滑块，所有评分均由大师根据财务数据间的勾稽关系自动计算。")
