@@ -1,83 +1,75 @@
 import streamlit as st
-import yfinance as yf
 import pandas as pd
 
-st.set_page_config(page_title="大师选股系统 V11.0", layout="wide")
+st.set_page_config(page_title="大师灵魂决策系统 V12.0", layout="wide")
 
-@st.cache_data(ttl=3600)
-def analyze_master_v11(ticker):
-    # 针对 A 股和港股巨头的稳定映射
-    mapping = {"06160.HK": "BGNE", "09988.HK": "BABA", "00700.HK": "TCEHY", "600519.SS": "600519.SS"}
-    lookup = mapping.get(ticker, ticker)
-    stock = yf.Ticker(lookup)
+# --- UI 头部 ---
+st.title("🏛️ 大师核心决策演算系统 V12.0")
+st.markdown("### 模式：数据驱动版 (避开封锁，直达决策核心)")
+st.info("💡 请从巨潮、港交所或雪球财报摘要中，输入以下核心指标：")
+
+# --- 数据输入区 ---
+with st.container():
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        roe = st.number_input("1. 净资产收益率 ROE (%)", value=15.0)
+        net_margin = st.number_input("2. 销售净利率 (%)", value=10.0)
+    with col2:
+        asset_turnover = st.number_input("3. 资产周转率 (次)", value=1.0)
+        fcf_ni_ratio = st.number_input("4. 收益质量 (经营现金流/净利润)", value=1.0)
+    with col3:
+        rev_growth = st.number_input("5. 营收年增长率 (%)", value=12.0)
+        ey_magic = st.number_input("6. 神奇收益率 (EBIT/EV %)", value=8.0)
+
+# --- 核心演算逻辑 ---
+def calculate_master_verdict(roe, margin, turnover, cash_q, growth, magic):
+    # 1. 质量评分 (45%) - 巴菲特/芒格/多尔西
+    # 核心：高ROE + 高现金流质量
+    q_score = (roe * 0.6 + (cash_q * 10) * 0.4) 
     
-    try:
-        # 1. 调取官方财报标准化数据
-        info = stock.info
-        fin = stock.quarterly_financials
-        
-        # --- [深度定量计算] ---
-        # 杜邦因子
-        roe = info.get('returnOnEquity', 0)
-        net_margin = info.get('profitMargins', 0)
-        asset_turnover = info.get('revenue', 0) / info.get('totalAssets', 1)
-        
-        # 收益质量 (经营现金流/净利润)
-        fcf = info.get('freeCashflow', 0)
-        net_income = info.get('netIncomeToCommon', 1)
-        cash_quality = fcf / net_income if net_income > 0 else 0
-        
-        # 资本回报率 (ROC)
-        ebit = info.get('ebitda', 0) * 0.8
-        invested_capital = info.get('totalAssets', 1) - info.get('totalCurrentLiabilities', 0)
-        roc = ebit / invested_capital if invested_capital > 0 else 0
-        
-        # 估值 (盈利收益率)
-        pe = info.get('forwardPE', 100)
-        ey = 1/pe if pe > 0 else 0
-        
-        # 成长 (营收增速)
-        rev_growth = info.get('revenueGrowth', 0)
+    # 2. 价值评分 (35%) - 格林布拉特/马克思
+    # 核心：神奇收益率
+    v_score = (magic * 1.0) 
+    
+    # 3. 动力评分 (20%) - 费雪/邓普顿
+    # 核心：成长性
+    g_score = (growth * 1.0)
+    
+    # 综合加权 (归一化处理)
+    final = (q_score * 0.45 + v_score * 3.5 * 0.35 + g_score * 0.20)
+    return final, q_score, v_score, g_score
 
-        # --- [大师加权定性评分系统] ---
-        # 1. 质量评分 (45%): 巴菲特/芒格/多尔西
-        q_score = (roe * 0.5 + cash_quality * 0.3 + net_margin * 0.2) * 100
-        # 2. 价值评分 (35%): 格林布拉特/马克思
-        v_score = (ey * 0.6 + roc * 0.4) * 100
-        # 3. 动力评分 (20%): 费雪/邓普顿
-        g_score = (rev_growth * 1.0) * 100
-        
-        final_score = q_score * 0.45 + v_score * 0.35 + g_score * 0.20
+if st.button("开始大师灵魂演算"):
+    final_score, q, v, g = calculate_master_verdict(roe, net_margin, asset_turnover, fcf_ni_ratio, rev_growth, ey_magic)
+    
+    st.divider()
+    st.metric("大师综合价值分 (Master Score)", f"{final_score:.1f}")
 
-        return {
-            "名称": info.get('longName', ticker),
-            "大师加权总分": f"{final_score:.2f}",
-            "ROE(质量)": f"{roe*100:.2f}%",
-            "净利率(竞争力)": f"{net_margin*100:.2f}%",
-            "收益质量(FCF/NI)": f"{cash_quality:.2f}",
-            "神奇收益率(估值)": f"{ey*100:.2f}%",
-            "营收增长(费雪指标)": f"{rev_growth*100:.2f}%",
-            "评估": "极具大师潜质" if final_score > 15 else "基本面一般"
-        }
-    except Exception as e:
-        return {"错误": "由于Streamlit云端公共IP被封锁，请尝试在10分钟后重试，或联系开发者增加私有代理。"}
-
-st.title("🏛️ 大师灵魂评估系统 V11.0")
-st.caption("【深度加权版】数据源自交易所披露接口 | 杜邦分析 + 收益质量 + 大师矩阵")
-
-target = st.text_input("代码 (如: 600519.SS, 0700.HK, 06160.HK)", "600519.SS")
-
-if st.button("开始穿透评估"):
-    with st.spinner('正在调取官方财报并执行大师加权模型...'):
-        res = analyze_master_v11(target)
-        if "错误" in res:
-            st.error(res["错误"])
+    # --- 大师点评区 (定性衡量的数字化体现) ---
+    st.subheader("🖋️ 大师灵魂评述")
+    
+    # 巴菲特/芒格 视角
+    with st.expander("巴菲特 & 查理·芒格 的评价", expanded=True):
+        if roe > 20 and fcf_ni_ratio > 1.1:
+            st.success("巴菲特：‘这是一家拥有深厚护城河的公司，它的利润不仅仅是会计数字，更是实实在在的现金。就像喜诗糖果一样，它值得我们长期坚守。’")
+        elif roe < 10:
+            st.error("芒格：‘这种回报率还不如去存银行。如果一个生意需要持续投入大量资产却只能产生微薄利润，那简直是在自掘坟墓。’")
         else:
-            col1, col2 = st.columns([1, 2])
-            col1.metric("大师综合分", res["大师加权总分"])
-            col2.table(pd.DataFrame([res]))
-            
-            st.info("💡 逻辑：巴菲特/芒格(45%)确保质量，格林布拉特(35%)确保便宜，费雪(20%)确保成长。")
+            st.warning("巴菲特：‘生意不错，但还没到让人兴奋的地步。我们要寻找的是那种无需增加资本投入就能持续增长的特种生意。’")
 
-st.divider()
-st.caption("注：如遇持续超时，说明Streamlit服务器IP已被Yahoo暂时屏蔽。建议使用个人电脑部署或更换其他海外云服务商。")
+    # 格林布拉特 视角
+    with st.expander("乔尔·格林布拉特 的评价"):
+        if ey_magic > 15:
+            st.success("格林布拉特：‘神奇公式在这里闪闪发光！它不仅好，而且非常便宜。这正是我们寻找的被市场错杀的珍珠。’")
+        else:
+            st.info("格林布拉特：‘价格只能算合理，尚未进入我们的‘击球区’。记住，好公司如果不便宜，就不是一笔好投资。’")
+
+    # 费雪 & 邓普顿 视角
+    with st.expander("菲利普·费雪 & 约翰·邓普顿 的评价"):
+        if rev_growth > 25:
+            st.success("费雪：‘我在它身上看到了未来的影子！管理层极具远见，这种增长势头正是超级大牛股的雏形。’")
+        else:
+            st.info("邓普顿：‘即便增长缓慢，只要现在的悲观情绪足够重，反转的机会就一定存在。’")
+
+    # 杜邦分析结论
+    st.info(f"📊 杜邦深度分析：当前ROE为{roe}%。其中，净利率对盈利的贡献权重较高，说明产品具备{ '强定价权' if net_margin > 20 else '平均竞争水平' }。")
