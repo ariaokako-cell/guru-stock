@@ -3,112 +3,104 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 
-st.set_page_config(page_title="大师灵魂雷达 V26.0", layout="wide")
+st.set_page_config(page_title="大师灵魂扫射雷达 V28.0", layout="wide")
 
-# --- 核心逻辑：稳健数据提取 ---
-def get_robust_data(stock):
-    info = stock.info
-    # 尝试从不同来源获取现金流
-    ocf = info.get('operatingCashflow')
-    if ocf is None or ocf == 0:
-        try:
-            cf = stock.cashflow
-            ocf = cf.loc['Operating Cash Flow'].iloc[0] if 'Operating Cash Flow' in cf.index else 0
-        except: ocf = 0
-    
-    net_income = info.get('netIncomeToCommon')
-    if net_income is None or net_income == 0:
-        try:
-            fin = stock.financials
-            net_income = fin.loc['Net Income'].iloc[0] if 'Net Income' in fin.index else 1
-        except: net_income = 1
-        
-    return info, ocf, net_income
+# --- 定义：主板与港股通核心扫描宇宙 (选取各行业最具代表性的标的) ---
+ELITE_UNIVERSE = [
+    # A股主板 (消费/白马/资源/制造)
+    "600519.SS", "601318.SS", "600036.SS", "600585.SS", "601888.SS", "000333.SZ", 
+    "603288.SS", "600276.SS", "000651.SZ", "600887.SS", "600030.SS", "601012.SS",
+    # 港股通 (互联网/医药/金融/消费)
+    "00700.HK", "09988.HK", "03690.HK", "01211.HK", "02318.HK", "01810.HK", 
+    "00941.HK", "00883.HK", "00005.HK", "02020.HK", "01801.HK", "09618.HK"
+]
 
-def master_logic_v26(ticker, info, ocf, net_p):
-    rf = 0.025
-    roe = info.get('returnOnEquity', 0)
-    rev_growth = info.get('revenueGrowth', 0)
-    margin = info.get('grossMargins', 0)
+# --- 大师决策逻辑：核心算法 ---
+def master_council_valuation(ticker, info):
+    # 1. 抓取张新民关心的底层数据
+    ocf = info.get('operatingCashflow', 0)
+    net_p = info.get('netIncomeToCommon', 1)
     ocf_ni = ocf / net_p if net_p != 0 else 0
     
-    is_growth = any(x in ticker for x in ["01801", "300760", "00700", "09988"])
-    is_cycle = any(x in ticker for x in ["600585", "600019", "01171"])
-
-    # 1. 大师投票
-    votes = {}
-    votes["巴菲特"] = "👍 赞成" if roe > 0.18 and not is_growth else "➖ 观察"
-    votes["费雪"] = "👍 赞成" if rev_growth > 0.2 or (is_growth and rev_growth > 0.1) else "➖ 观察"
+    # 2. 抓取巴菲特关心的ROE与毛利
+    roe = info.get('returnOnEquity', 0)
+    margin = info.get('grossMargins', 0)
     
-    # 2. 格林沃尔德 EPV
-    wacc = rf + (0.04 if roe > 0.15 else 0.08)
+    # 3. 抓取格林沃尔德的估值参数 (2026年3月基准)
+    rf = 0.025
     ebit = info.get('ebitda', 0) * 0.8
-    # 如果是海螺水泥这种周期股，盈利取历史均值（模拟）
-    if is_cycle and roe < 0.1: ebit = info.get('totalAssets', 0) * 0.05
-    
+    wacc = rf + (0.04 if roe > 0.18 else 0.07)
     epv = (ebit * 0.75) / wacc
     net_debt = info.get('totalDebt', 0) - info.get('totalCash', 0)
-    iv = (epv - net_debt) / info.get('sharesOutstanding', 1) if info.get('sharesOutstanding') else 0
+    shares = info.get('sharesOutstanding', 1)
+    iv = (epv - net_debt) / shares if shares > 0 else 0
     price = info.get('currentPrice', 1)
-    margin_safe = (iv - price) / iv if iv > 0 else -1.0
+    safety_margin = (iv - price) / iv if iv > 0 else -1.0
+    
+    # 4. 抓取费雪的增长动能
+    rev_growth = info.get('revenueGrowth', 0)
 
-    # 3. 综合分
-    score = (roe * 0.4 + (1+margin_safe) * 0.4 + rev_growth * 0.2) * 100
-    if is_growth: score = (rev_growth * 0.6 + margin * 0.4) * 100
+    # --- 决策矩阵 ---
+    council_vote = 0
+    if ocf_ni > 1.0: council_vote += 2  # 张新民：现金流是灵魂
+    if roe > 0.15: council_vote += 2    # 巴菲特：ROE是门槛
+    if safety_margin > 0.2: council_vote += 2 # 格林沃尔德：便宜是硬道理
+    if rev_growth > 0.1: council_vote += 1    # 费雪：增长是加分项
+    if margin > 0.3: council_vote += 1        # 多尔西：护城河检测
     
-    # 4. 张新民审计 (针对创新药放宽标准)
-    audit_ok = ocf_ni > 0.8 if not is_growth else ocf_ni > 0.3
-    
-    return round(score, 2), votes, margin_safe, audit_ok
+    return {
+        "council_vote": council_vote,
+        "safety_margin": safety_margin,
+        "ocf_ni": ocf_ni,
+        "roe": roe,
+        "name": info.get('shortName', ticker),
+        "rev_growth": rev_growth,
+        "iv": iv
+    }
 
-# --- 扫描池 ---
-SCAN_POOL = ["600519.SS", "00700.HK", "000333.SZ", "01801.HK", "600585.SS", "300760.SZ", "603288.SS"]
+st.title("🏛️ 大师灵魂扫射系统 V28.0")
+st.caption("【主板 + 港股通】巡航模式 | 排除科创与创业板 | 张新民财务防火墙前置")
 
-st.title("🏛️ 大师灵魂雷达 V26.0")
-st.caption("【金融级稳定性】修复KeyError，强化港股穿透审计逻辑")
+if st.button("📡 启动主板全量扫射"):
+    scan_results = []
+    with st.status("正在扫射 A/H 核心主板资产...", expanded=True) as status:
+        for i, ticker in enumerate(ELITE_UNIVERSE):
+            try:
+                stock = yf.Ticker(ticker)
+                res = master_council_valuation(ticker, stock.info)
+                if res['ocf_ni'] > 0.8: # 张新民防火墙：利润含金量不及格的一律不显示
+                    scan_results.append({
+                        "代码": ticker,
+                        "名称": res['name'],
+                        "大师共识分": res['council_vote'],
+                        "ROE": f"{res['roe']*100:.1f}%",
+                        "安全边际": f"{res['safety_margin']*100:.1f}%",
+                        "含金量": f"{res['ocf_ni']:.2f}",
+                        "IV": res['iv']
+                    })
+            except: continue
+        status.update(label="扫射完成！正在按大师共识评分排列...", state="complete", expanded=False)
+    
+    # 排序并展示前 5
+    top_picks = pd.DataFrame(scan_results).sort_values(by="大师共识分", ascending=False).head(5)
+    
+    st.subheader("🏆 大师委员会筛选：当前【最值得投资】的前 5 席")
+    st.table(top_picks.drop(columns=['IV']))
 
-if st.button("📡 执行多维权重雷达扫描"):
-    results = []
-    progress = st.progress(0)
-    
-    for i, ticker in enumerate(SCAN_POOL):
-        try:
-            stock = yf.Ticker(ticker)
-            info, ocf, net_p = get_robust_data(stock)
-            score, votes, margin, audit = master_logic_v26(ticker, info, ocf, net_p)
-            
-            results.append({
-                "ticker": ticker,
-                "name": info.get('shortName', ticker),
-                "score": score,
-                "margin": margin,
-                "audit": "通过" if audit else "拒绝",
-                "votes": votes
-            })
-        except: continue
-        progress.progress((i + 1) / len(SCAN_POOL))
-    
-    df_display = pd.DataFrame(results)
-    # 映射展示名
-    df_show = df_display.rename(columns={
-        "ticker": "代码", "name": "名称", "score": "大师综合分", "margin": "安全边际", "audit": "张新民审计"
-    })
-    # 格式化安全边际
-    df_show["安全边际"] = df_show["安全边际"].apply(lambda x: f"{x*100:.1f}%" if x != -1.0 else "估值难计")
-    
-    st.subheader("🏆 2026年3月大师决策看板")
-    st.table(df_show.drop(columns=['votes'], errors='ignore'))
-    
+    # --- 深度研报区 ---
     st.divider()
-    st.subheader("🖋️ 针对性大师灵魂评述")
-    for item in results:
-        with st.expander(f"查看 {item['name']} ({item['ticker']}) 的投票详情"):
-            v = item['votes']
-            st.write(f"**巴菲特/芒格**: {v['巴菲特']}")
-            st.write(f"**费雪**: {v['费雪']}")
-            st.write(f"**张新民审计**: {item['audit']}")
+    st.subheader("🖋️ 精选标的深度剖析")
+    for _, row in top_picks.iterrows():
+        with st.expander(f"查看 {row['名称']} ({row['代码']}) 的大师辩论"):
+            st.write(f"**🛡️ 张新民审计**：该股利润含金量为 {row['含金量']}，现金流表现稳健，无虚假利润嫌疑。")
+            st.write(f"**📈 巴菲特评价**：{row['ROE']} 的 ROE 说明了其商业模式在主板中的卓越性。")
+            st.write(f"**💰 格林沃尔德**：当前内在价值估算为 {row['IV']:.2f}。对比市价，安全边际达 {row['安全边际']}。")
             
-            if "01801" in item['ticker']:
-                st.info("💡 创新药专项说明：信达生物的利润含金量已通过‘研发费用还原算法’修正。")
-            if "600585" in item['ticker']:
-                st.info("💡 周期股专项说明：海螺水泥当前处于‘资产溢价期’，盈利虽低但重置成本极高。")
+            # 动态建议
+            if "HK" in row['代码']:
+                st.info("💡 港股提示：该股属于港股通，需关注汇率波动及南向资金流向。")
+            else:
+                st.info("💡 A股提示：主板蓝筹标的，适合作为核心资产配置。")
+
+st.divider()
+st.info("💡 逻辑：我们只在大树下寻找阴凉。本程序已自动过滤了不确定性较高的创业板和科创板，确保每一份建议都来自具备‘历史厚度’的企业。")
